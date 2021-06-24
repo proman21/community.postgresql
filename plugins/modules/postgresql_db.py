@@ -386,8 +386,6 @@ def db_dump(module, target, target_opts="",
             user=None,
             host=None,
             port=None,
-            sslmode=None,
-            sslrootcert=None,
             **kw):
 
     flags = login_flags(db, host, port, user, db_prefix=False)
