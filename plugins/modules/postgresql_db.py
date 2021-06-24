@@ -371,19 +371,29 @@ def db_matches(cursor, db, owner, template, encoding, lc_collate, lc_ctype, conn
         else:
             return True
 
+def pq_envvars(args):
+    envvars = {
+        "sslmode": "PGSSLMODE",
+        "sslrootcert": "PGSSLROOTCERT",
+        "password": "PGPASSWORD",
+    }
+    return dict((envvars[k], v) for (k, v) in iteritems(args)
+                if k in envvars and v != '' and v is not None)
 
 def db_dump(module, target, target_opts="",
             db=None,
             dump_extra_args=None,
             user=None,
-            password=None,
             host=None,
             port=None,
+            sslmode=None,
+            sslrootcert=None,
             **kw):
 
     flags = login_flags(db, host, port, user, db_prefix=False)
     cmd = module.get_bin_path('pg_dump', True)
     comp_prog_path = None
+    env = pq_envvars(kw)
 
     if os.path.splitext(target)[-1] == '.tar':
         flags.append(' --format=t')
@@ -417,13 +427,12 @@ def db_dump(module, target, target_opts="",
     else:
         cmd = '{0} > {1}'.format(cmd, shlex_quote(target))
 
-    return do_with_password(module, cmd, password)
+    return execute_command(module, cmd, env)
 
 
 def db_restore(module, target, target_opts="",
                db=None,
                user=None,
-               password=None,
                host=None,
                port=None,
                **kw):
@@ -431,6 +440,7 @@ def db_restore(module, target, target_opts="",
     flags = login_flags(db, host, port, user)
     comp_prog_path = None
     cmd = module.get_bin_path('psql', True)
+    pq_env = pq_envvars(kw)
 
     if os.path.splitext(target)[-1] == '.sql':
         flags.append(' --file={0}'.format(target))
@@ -458,8 +468,7 @@ def db_restore(module, target, target_opts="",
 
     if comp_prog_path:
         env = os.environ.copy()
-        if password:
-            env = {"PGPASSWORD": password}
+        env.update(pq_env)
         p1 = subprocess.Popen([comp_prog_path, target], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         p2 = subprocess.Popen(cmd, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True, env=env)
         (stdout2, stderr2) = p2.communicate()
@@ -473,7 +482,7 @@ def db_restore(module, target, target_opts="",
     else:
         cmd = '{0} < {1}'.format(cmd, shlex_quote(target))
 
-    return do_with_password(module, cmd, password)
+    return execute_command(module, cmd, pq_env)
 
 
 def login_flags(db, host, port, user, db_prefix=True):
@@ -500,10 +509,7 @@ def login_flags(db, host, port, user, db_prefix=True):
     return flags
 
 
-def do_with_password(module, cmd, password):
-    env = {}
-    if password:
-        env = {"PGPASSWORD": password}
+def execute_command(module, cmd, env):
     executed_commands.append(cmd)
     rc, stderr, stdout = module.run_command(cmd, use_unsafe_shell=True, environ_update=env)
     return rc, stderr, stdout, cmd
